@@ -1,0 +1,219 @@
+Enter file contents here
+
+/*
+Name: Daniel McDougall
+Project: CS207 project assignment
+Date: 03/Dec/2014
+Revision: rev 4
+Description: Program will enable a modified semiautomatic paintball marker to 
+             fire in semi auto, burst, and full automatic modes (select fire).
+             The marker will be controlled by a microlimit switch used as an
+             electronic trigger.  The trigger will actuate a solenoid actuator
+             connected to the marker's stock trigger (and by extension the sear)
+             It will have a button to select from four different modes (safe, 
+             semi auto, burst, full automatic). It will utilize electronic eyes 
+             (diy break beam sensor) to prevent semi-loaded paintballs from being
+             chopped, or wasting propellant by firing the marker while the chamber
+             is empty.  Indicator LED's will provide feedback to the user, indicating
+             whether the chamber is loaded and what mode the marker is currently in.
+*/
+
+//define input pins
+#define eTriggerIn 4  //input from microswitch trigger
+#define modeSelect 0 //PIN 2 //input from mode select button attached to interrupt 0
+#define eEye A0  //input from electronic eye
+
+//define output pins
+#define solenoidOut 8  //controls power MOSFET for the solenoid actuator
+#define eyeBlockedLED 12  //LED indicates status of electronic eye - if paintball is blocking beam LED is on
+#define modeLEDr 9  //mode indicator RGB LED red
+#define modeLEDg 10  //mode indicator RGB LED green 
+#define modeLEDb 11  //mode indicator RGB LED blue
+
+//define variables
+char G,Y,B,R;  //these chars will be passed to a function that will set the mode led colour for each different fire mode (green-safe, yellow-semi, blue-burst, red-automatic) 
+const int THRESHOLD = 100;  //this will be compared to the input from the break beam sensor
+const int PULSETIME = 5;  //number of milliseconds current will flow through the solenoid ****THIS MUST NOT BE AN EXTENDED PERIOD OF TIME OR THE SOLENOID WILL BE DESTROYED SINCE A LARGE CURRENT FLOWS THROUGH IT****
+const int FIRERATE = 125;  //this delay affects the rate of fire for the burst and automatic fire modes (125 = 8bps (paintballs per second), 100 = 10bps, 83 = 12bps, 71 = 14bps, 62 = 16bps)
+const int CAPVAL = 10;  //adjust this to set the max fire rate in semi auto mode
+int lastTriggerState;  //storage for previous trigger state
+volatile int fireMode = 0;  //mode 0 is safe, 1 is semi-auto, 2 is burst, 3 is full-auto (volatile since it is changed during the interrupt)
+
+//function prototypes
+void setModeLED(char);  //passes a char to control which colour the mode led is
+boolean checkChamberLoaded();  //function to check if the chamber is loaded (returns true if the chamber is loaded, otherwise it returns false)
+void fireSemiAuto(int);  //the int passed is 1 (trigger switch is high) or 0 (trigger switch is low)
+void fireBurst(int);  //the int passed is 1 (trigger switch is high) or 0 (trigger switch is low)
+void fireAutomatic(int);  //the int passed is 1 (trigger switch is high) or 0 (trigger switch is low)
+
+
+
+void setup(){
+  //setup inputs
+  pinMode(eTriggerIn,INPUT);
+  pinMode(modeSelect, INPUT);
+  pinMode(eEye, INPUT);
+  
+  //setup outputs
+  pinMode(solenoidOut,OUTPUT); 
+  pinMode(eyeBlockedLED,OUTPUT);
+  pinMode(modeLEDr,OUTPUT);
+  pinMode(modeLEDg,OUTPUT);
+  pinMode(modeLEDb,OUTPUT);
+   
+ // Serial.begin(9600);  //begin serial communication for debugging
+  
+  attachInterrupt(modeSelect, SelectFireMode, RISING);  //add hardware interrupt to change fire mode on rising edge ***button must be hardware debounced***
+}
+
+
+
+//interrupt to change fire mode
+void SelectFireMode (){ 
+  if (fireMode == 0)  //if on safe
+    fireMode = 1;  //switch to semi-auto
+  else if (fireMode == 1)  //if on semi-auto
+    fireMode = 2;  //switch to burst
+  else if (fireMode == 2)  //if on burst
+    fireMode = 3;  //switch to full-auto
+  else  //if on full-auto
+    fireMode = 0;  //switch to safe
+}
+
+
+
+void loop(){  
+  
+  //Serial.println(analogRead(eEye));  //used for debugging only
+ 
+  switch (fireMode) {    
+    
+    case 0:  //Safe Mode
+        setModeLED('G');   //set mode led to green
+        checkChamberLoaded();  //see if there is a paintball in the chamber
+        break;
+         
+    case 1:  //Semi-auto mode
+        setModeLED('Y');  //set mode led to yellow
+        if (checkChamberLoaded() == true)  //if there is a paintball in the chamber
+          fireSemiAuto(digitalRead(eTriggerIn));  //call semi-auto fire function (fire a paintball)
+        break;
+       
+    case 2:  //Burst mode
+        setModeLED('B');  //set mode led to blue
+        if (checkChamberLoaded() == true)  //if there is a paintball in the chamber
+          fireBurst(digitalRead(eTriggerIn));  //call burst fire function (fire multiple shots)
+        break;
+           
+    case 3:  //Full-auto mode 
+        setModeLED('R');  //set mode led to red
+         if (checkChamberLoaded() == true)  //if there is a paintball in the chamber
+           fireAutomatic(digitalRead(eTriggerIn));  //call automatic fire function (fire continuously)
+        break;
+  }
+}
+
+
+
+//FUNCTIONS
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//set the colour of the mode LED for the corresponding fire mode
+void setModeLED(char colour){
+  
+  switch(colour){
+    
+    case 'G':{
+        //set mode LED to GREEN
+        analogWrite(modeLEDr, 0);
+        analogWrite(modeLEDg, 100);
+        analogWrite(modeLEDb, 0);
+        break;
+    }
+    case 'Y':{
+        //set mode LED to YELLOW
+        analogWrite(modeLEDr, 100);
+        analogWrite(modeLEDg, 150);
+        analogWrite(modeLEDb, 0);
+        break;
+    }
+    case 'B':{
+        //set mode LED to BLUE 
+        analogWrite(modeLEDr, 0);
+        analogWrite(modeLEDg, 0);
+        analogWrite(modeLEDb, 100);
+        break;
+    }
+    case 'R':{
+        //set mode LED to RED
+        analogWrite(modeLEDr, 100);
+        analogWrite(modeLEDg, 0);
+        analogWrite(modeLEDb, 0);
+        break;
+    }
+  }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//check if there is a paintball loaded
+boolean checkChamberLoaded(){
+   if (analogRead(eEye) < THRESHOLD){  //if there is a paintball blocking the break beam sensor (chamber is loaded)
+     digitalWrite(eyeBlockedLED, HIGH);  //indicate that the chamber is loaded
+     return true;  //allow the gun to fire
+   }
+   else{
+     digitalWrite(eyeBlockedLED, LOW);  //indicate the chamber is empty
+     return false;  //do not allow the gun to fire
+   }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//everytime the microswitch goes from low to high send one output pulse to the solenoid
+void fireSemiAuto(int triggerState){  
+  if (triggerState == HIGH && lastTriggerState == LOW){  //if the trigger was pulled
+    digitalWrite(solenoidOut, HIGH);  //
+    delay(PULSETIME);                 //fire one shot (sends a 5 millisecond pulse to the MOSFET controlling the solenoid)
+    digitalWrite(solenoidOut, LOW);   //
+    delay(CAPVAL);  //sets max bps
+    lastTriggerState = triggerState;  //reset last trigger state
+  }
+ else
+   lastTriggerState = triggerState;  //reset last trigger state
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//everytime the microswitch goes from low to high send a burst of output pulses to the solenoid
+void fireBurst(int triggerState){
+ if (triggerState == HIGH && lastTriggerState == LOW){  //if the trigger was pulled
+     for(int i=0; i<3; i++){              //
+      if (checkChamberLoaded() == true){  //
+        digitalWrite(solenoidOut, HIGH);  //
+        delay(PULSETIME);                 //fire three shots
+        digitalWrite(solenoidOut, LOW);   //
+        delay(FIRERATE);                  //
+      }
+     }
+   lastTriggerState = triggerState;  //reset last trigger state
+   }
+ else
+   lastTriggerState = triggerState;  //reset last trigger state
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//everytime the microswitch is high send a continuous stream of output pulses to the solenoid
+void fireAutomatic(int triggerState){
+  if (triggerState == HIGH){  //if the trigger is high
+    digitalWrite(solenoidOut, HIGH);  //
+    delay(PULSETIME);                 //fire a shot
+    digitalWrite(solenoidOut, LOW);   //
+    delay(FIRERATE);
+  }
+}
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
