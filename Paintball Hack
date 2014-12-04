@@ -16,6 +16,7 @@ Description: Program will enable a modified semiautomatic paintball marker to
              chopped, or wasting propellant by firing the marker while the chamber
              is empty.  Indicator LED's will provide feedback to the user, indicating
              whether the chamber is loaded and what mode the marker is currently in.
+Microcontroller platform: Arduino uno rev3
 */
 
 //define input pins
